@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Scholars School Map</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Georgia', serif; background: #fafaf8; color: #1a1a1a; padding: 24px; }
+  h1 { font-size: 22px; font-weight: normal; letter-spacing: -0.3px; margin-bottom: 4px; }
+  .subtitle { font-size: 13px; color: #888; margin-bottom: 16px; }
+  #stats-bar { display: flex; gap: 10px; margin-bottom: 14px; }
+  .stat { background: #fff; border: 0.5px solid #e0e0e0; border-radius: 8px; padding: 10px 16px; flex: 1; }
+  .stat-label { font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+  .stat-num { font-size: 22px; font-weight: 500; color: #1a1a1a; }
+  #map-wrap { border-radius: 12px; overflow: hidden; border: 0.5px solid #e0e0e0; background: #f0f0ec; position: relative; }
+  svg { display: block; width: 100%; cursor: grab; }
+  svg.grabbing { cursor: grabbing; }
+  .state-path { fill: #fff; stroke: #d0d0cc; stroke-width: 0.5; }
+  .school-dot { cursor: pointer; }
+  #tooltip { position: absolute; pointer-events: none; background: #fff; border: 0.5px solid #ddd; border-radius: 10px; padding: 10px 14px; font-size: 13px; display: none; z-index: 10; max-width: 220px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+  .t-name { font-weight: 600; margin-bottom: 3px; color: #1a1a1a; font-size: 13px; }
+  .t-loc { font-size: 12px; color: #888; margin-bottom: 6px; }
+  .t-badge { font-size: 11px; font-weight: 500; padding: 2px 9px; border-radius: 20px; display: inline-block; }
+  #zoom-controls { position: absolute; top: 12px; right: 12px; z-index: 10; display: flex; flex-direction: column; gap: 4px; }
+  .zoom-btn { width: 32px; height: 32px; background: #fff; border: 0.5px solid #ddd; border-radius: 7px; font-size: 18px; color: #333; cursor: pointer; display: flex; align-items: center; justify-content: center; user-select: none; }
+  .zoom-btn:hover { background: #f5f5f5; }
+  #reset-btn { width: 32px; height: 32px; background: #fff; border: 0.5px solid #ddd; border-radius: 7px; font-size: 11px; font-weight: 500; color: #888; cursor: pointer; display: flex; align-items: center; justify-content: center; margin-top: 2px; user-select: none; }
+  #reset-btn:hover { background: #f5f5f5; }
+  #footer { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; flex-wrap: wrap; gap: 8px; }
+  #legend { display: flex; gap: 16px; flex-wrap: wrap; }
+  .leg-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #666; }
+  .leg-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  #hint { font-size: 11px; color: #aaa; }
+  #loading { text-align: center; padding: 80px 0; font-size: 14px; color: #999; }
+</style>
+</head>
+<body>
+<h1>Where Our Scholars Go</h1>
+<p class="subtitle">US colleges and universities attended by program scholars</p>
+<div id="stats-bar">
+  <div class="stat"><div class="stat-label">Total Schools</div><div class="stat-num" id="s-total">—</div></div>
+  <div class="stat"><div class="stat-label">States Represented</div><div class="stat-num" id="s-states">—</div></div>
+  <div class="stat"><div class="stat-label">School Types</div><div class="stat-num" id="s-types">—</div></div>
+</div>
+<div id="map-wrap">
+  <div id="loading">Loading map…</div>
+  <svg id="map-svg" viewBox="0 0 960 600"><g id="map-g"></g></svg>
+  <div id="zoom-controls">
+    <button class="zoom-btn" id="zoom-in">+</button>
+    <button class="zoom-btn" id="zoom-out">−</button>
+    <button id="reset-btn">fit</button>
+  </div>
+  <div id="tooltip"></div>
+</div>
+<div id="footer">
+  <div id="legend">
+    <div class="leg-item"><div class="leg-dot" style="background:#1a5fa8"></div>University / College</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#2d7a3a"></div>Liberal Arts College</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#b84c1a"></div>Community College</div>
+  </div>
+  <div id="hint">scroll or pinch to zoom · drag to pan</div>
+</div>
+<script>
+const schools = [
+  // ── original 146 ──
+  {name:"Alfred State College",city:"Alfred",state:"NY",lat:42.2534,lng:-77.789,type:"university"},
+  {name:"Agnes Scott College",city:"Decatur",state:"GA",lat:33.7659,lng:-84.2969,type:"liberal arts"},
+  {name:"American University",city:"Washington",state:"DC",lat:38.9365,lng:-77.0875,type:"university"},
+  {name:"Amherst College",city:"Amherst",state:"MA",lat:42.3709,lng:-72.517,type:"liberal arts"},
+  {name:"Arizona State University",city:"Tempe",state:"AZ",lat:33.4242,lng:-111.9281,type:"university"},
+  {name:"Assumption University",city:"Worcester",state:"MA",lat:42.2737,lng:-71.8084,type:"university"},
+  {name:"Barnard College",city:"New York",state:"NY",lat:40.8097,lng:-73.9639,type:"liberal arts"},
+  {name:"Baruch College",city:"New York",state:"NY",lat:40.7402,lng:-73.9836,type:"university"},
+  {name:"Bates College",city:"Lewiston",state:"ME",lat:44.1056,lng:-70.2051,type:"liberal arts"},
+  {name:"Baylor University",city:"Waco",state:"TX",lat:31.5493,lng:-97.1467,type:"university"},
+  {name:"Boston College",city:"Chestnut Hill",state:"MA",lat:42.3355,lng:-71.1685,type:"university"},
+  {name:"Boston University",city:"Boston",state:"MA",lat:42.3505,lng:-71.1054,type:"university"},
+  {name:"Bowdoin College",city:"Brunswick",state:"ME",lat:43.9077,lng:-69.9634,type:"liberal arts"},
+  {name:"Brandeis University",city:"Waltham",state:"MA",lat:42.3679,lng:-71.2613,type:"university"},
+  {name:"Brown University",city:"Providence",state:"RI",lat:41.8268,lng:-71.4025,type:"university"},
+  {name:"Bucknell University",city:"Lewisburg",state:"PA",lat:40.9534,lng:-76.884,type:"university"},
+  {name:"Cal Poly Pomona",city:"Pomona",state:"CA",lat:34.0572,lng:-117.8213,type:"university"},
+  {name:"Cal State East Bay",city:"Hayward",state:"CA",lat:37.6573,lng:-122.0572,type:"university"},
+  {name:"Cal State LA",city:"Los Angeles",state:"CA",lat:34.0681,lng:-118.1686,type:"university"},
+  {name:"Carnegie Mellon University",city:"Pittsburgh",state:"PA",lat:40.4433,lng:-79.9436,type:"university"},
+  {name:"Christian Brothers University",city:"Memphis",state:"TN",lat:35.1042,lng:-90.0231,type:"university"},
+  {name:"Claremont McKenna College",city:"Claremont",state:"CA",lat:34.0977,lng:-117.7103,type:"liberal arts"},
+  {name:"Clark Atlanta University",city:"Atlanta",state:"GA",lat:33.7501,lng:-84.4144,type:"university"},
+  {name:"Colby College",city:"Waterville",state:"ME",lat:44.5646,lng:-69.6617,type:"liberal arts"},
+  {name:"Colgate University",city:"Hamilton",state:"NY",lat:42.8198,lng:-75.5303,type:"liberal arts"},
+  {name:"Collin County Community College",city:"McKinney",state:"TX",lat:33.2148,lng:-96.6389,type:"community"},
+  {name:"Columbia University",city:"New York",state:"NY",lat:40.8075,lng:-73.9626,type:"university"},
+  {name:"Cornell University",city:"Ithaca",state:"NY",lat:42.4534,lng:-76.4735,type:"university"},
+  {name:"CUNY",city:"New York",state:"NY",lat:40.7484,lng:-73.9826,type:"university"},
+  {name:"Dakota State University",city:"Madison",state:"SD",lat:44.0067,lng:-97.1134,type:"university"},
+  {name:"Dartmouth College",city:"Hanover",state:"NH",lat:43.7044,lng:-72.2887,type:"university"},
+  {name:"Davidson College",city:"Davidson",state:"NC",lat:35.4994,lng:-80.844,type:"liberal arts"},
+  {name:"DePaul University",city:"Chicago",state:"IL",lat:41.9253,lng:-87.6543,type:"university"},
+  {name:"Dominican University",city:"River Forest",state:"IL",lat:41.897,lng:-87.8259,type:"university"},
+  {name:"Dordt University",city:"Sioux Center",state:"IA",lat:43.0767,lng:-96.1761,type:"university"},
+  {name:"Drexel University",city:"Philadelphia",state:"PA",lat:39.9565,lng:-75.1894,type:"university"},
+  {name:"Duke University",city:"Durham",state:"NC",lat:36.0014,lng:-78.9382,type:"university"},
+  {name:"Emory University",city:"Atlanta",state:"GA",lat:33.7932,lng:-84.3241,type:"university"},
+  {name:"Florida Atlantic University",city:"Boca Raton",state:"FL",lat:26.37,lng:-80.1028,type:"university"},
+  {name:"Florida International University",city:"Miami",state:"FL",lat:25.7576,lng:-80.3728,type:"university"},
+  {name:"Florida Memorial University",city:"Miami Gardens",state:"FL",lat:25.9418,lng:-80.2423,type:"university"},
+  {name:"Fordham University",city:"Bronx",state:"NY",lat:40.8618,lng:-73.8848,type:"university"},
+  {name:"Fort Lewis College",city:"Durango",state:"CO",lat:37.2754,lng:-107.881,type:"university"},
+  {name:"Franklin and Marshall College",city:"Lancaster",state:"PA",lat:40.0383,lng:-76.312,type:"liberal arts"},
+  {name:"George Mason University",city:"Fairfax",state:"VA",lat:38.8316,lng:-77.3128,type:"university"},
+  {name:"George Washington University",city:"Washington",state:"DC",lat:38.8997,lng:-77.0486,type:"university"},
+  {name:"Georgetown University",city:"Washington",state:"DC",lat:38.9076,lng:-77.0723,type:"university"},
+  {name:"Georgia Tech",city:"Atlanta",state:"GA",lat:33.7756,lng:-84.3963,type:"university"},
+  {name:"Glendale Community College",city:"Glendale",state:"CA",lat:34.1608,lng:-118.2617,type:"community"},
+  {name:"Grinnell College",city:"Grinnell",state:"IA",lat:41.7434,lng:-92.7212,type:"liberal arts"},
+  {name:"Harvard University",city:"Cambridge",state:"MA",lat:42.377,lng:-71.1167,type:"university"},
+  {name:"Harvey Mudd College",city:"Claremont",state:"CA",lat:34.1064,lng:-117.7104,type:"liberal arts"},
+  {name:"Hofstra University",city:"Hempstead",state:"NY",lat:40.7135,lng:-73.599,type:"university"},
+  {name:"Howard University",city:"Washington",state:"DC",lat:38.9226,lng:-77.02,type:"university"},
+  {name:"Johns Hopkins University",city:"Baltimore",state:"MD",lat:39.329,lng:-76.6202,type:"university"},
+  {name:"Kenyon College",city:"Gambier",state:"OH",lat:40.3729,lng:-82.3962,type:"liberal arts"},
+  {name:"Lafayette College",city:"Easton",state:"PA",lat:40.696,lng:-75.2196,type:"liberal arts"},
+  {name:"Lehigh University",city:"Bethlehem",state:"PA",lat:40.6065,lng:-75.3796,type:"university"},
+  {name:"Lewis and Clark College",city:"Portland",state:"OR",lat:45.4614,lng:-122.6705,type:"liberal arts"},
+  {name:"Los Angeles Pierce College",city:"Woodland Hills",state:"CA",lat:34.1744,lng:-118.5782,type:"community"},
+  {name:"Los Angeles Southwest College",city:"Los Angeles",state:"CA",lat:33.9367,lng:-118.3034,type:"community"},
+  {name:"Loyola Marymount University",city:"Los Angeles",state:"CA",lat:33.9697,lng:-118.417,type:"university"},
+  {name:"Loyola University Chicago",city:"Chicago",state:"IL",lat:41.9993,lng:-87.6579,type:"university"},
+  {name:"Macalester College",city:"Saint Paul",state:"MN",lat:44.9384,lng:-93.1686,type:"liberal arts"},
+  {name:"Massachusetts College of Pharmacy and Health Sciences",city:"Boston",state:"MA",lat:42.3365,lng:-71.0997,type:"university"},
+  {name:"Middlebury College",city:"Middlebury",state:"VT",lat:44.0153,lng:-73.1762,type:"liberal arts"},
+  {name:"Minerva University",city:"San Francisco",state:"CA",lat:37.7749,lng:-122.4194,type:"university"},
+  {name:"MIT",city:"Cambridge",state:"MA",lat:42.3601,lng:-71.0942,type:"university"},
+  {name:"Mount Holyoke College",city:"South Hadley",state:"MA",lat:42.2565,lng:-72.5789,type:"liberal arts"},
+  {name:"Mount St. Mary's University",city:"Los Angeles",state:"CA",lat:34.0937,lng:-118.4744,type:"university"},
+  {name:"North Carolina State University",city:"Raleigh",state:"NC",lat:35.7719,lng:-78.6741,type:"university"},
+  {name:"North Central College",city:"Naperville",state:"IL",lat:41.7667,lng:-88.1516,type:"university"},
+  {name:"Northeastern University",city:"Boston",state:"MA",lat:42.3398,lng:-71.0892,type:"university"},
+  {name:"Northwest College",city:"Powell",state:"WY",lat:44.7528,lng:-108.7545,type:"university"},
+  {name:"Northwestern University",city:"Evanston",state:"IL",lat:42.0565,lng:-87.6753,type:"university"},
+  {name:"New York University",city:"New York",state:"NY",lat:40.7295,lng:-73.9965,type:"university"},
+  {name:"Pomona College",city:"Claremont",state:"CA",lat:34.0976,lng:-117.7131,type:"liberal arts"},
+  {name:"Princeton University",city:"Princeton",state:"NJ",lat:40.3431,lng:-74.6551,type:"university"},
+  {name:"Ramapo College of New Jersey",city:"Mahwah",state:"NJ",lat:41.0826,lng:-74.1826,type:"university"},
+  {name:"Rensselaer Polytechnic Institute",city:"Troy",state:"NY",lat:42.7298,lng:-73.6761,type:"university"},
+  {name:"Rhodes College",city:"Memphis",state:"TN",lat:35.1516,lng:-90.027,type:"liberal arts"},
+  {name:"Rice University",city:"Houston",state:"TX",lat:29.7174,lng:-95.4018,type:"university"},
+  {name:"Roberts Wesleyan University",city:"Rochester",state:"NY",lat:43.1128,lng:-77.6716,type:"university"},
+  {name:"Rollins College",city:"Winter Park",state:"FL",lat:28.5986,lng:-81.3451,type:"liberal arts"},
+  {name:"Rutgers University",city:"New Brunswick",state:"NJ",lat:40.5008,lng:-74.4474,type:"university"},
+  {name:"Sacred Heart University",city:"Fairfield",state:"CT",lat:41.1778,lng:-73.2537,type:"university"},
+  {name:"Saint Joseph's University",city:"Philadelphia",state:"PA",lat:40.0402,lng:-75.2285,type:"university"},
+  {name:"San Diego State University",city:"San Diego",state:"CA",lat:32.7757,lng:-117.0719,type:"university"},
+  {name:"San Jose State University",city:"San Jose",state:"CA",lat:37.3352,lng:-121.8811,type:"university"},
+  {name:"School of Visual Arts",city:"New York",state:"NY",lat:40.742,lng:-73.9881,type:"university"},
+  {name:"Scripps College",city:"Claremont",state:"CA",lat:34.1017,lng:-117.7105,type:"liberal arts"},
+  {name:"Siena College",city:"Loudonville",state:"NY",lat:42.7219,lng:-73.781,type:"university"},
+  {name:"Southern New Hampshire University",city:"Manchester",state:"NH",lat:42.996,lng:-71.4543,type:"university"},
+  {name:"Spelman College",city:"Atlanta",state:"GA",lat:33.7473,lng:-84.4114,type:"liberal arts"},
+  {name:"Stanford University",city:"Stanford",state:"CA",lat:37.4275,lng:-122.1697,type:"university"},
+  {name:"Stetson University",city:"DeLand",state:"FL",lat:29.0297,lng:-81.3031,type:"university"},
+  {name:"SUNY Brockport",city:"Brockport",state:"NY",lat:43.2095,lng:-77.9398,type:"university"},
+  {name:"SUNY Stony Brook",city:"Stony Brook",state:"NY",lat:40.9176,lng:-73.1237,type:"university"},
+  {name:"Swarthmore College",city:"Swarthmore",state:"PA",lat:39.9077,lng:-75.3524,type:"liberal arts"},
+  {name:"Tufts University",city:"Medford",state:"MA",lat:42.4075,lng:-71.119,type:"university"},
+  {name:"Tulane University",city:"New Orleans",state:"LA",lat:29.9399,lng:-90.1182,type:"university"},
+  {name:"United States Naval Academy",city:"Annapolis",state:"MD",lat:38.9832,lng:-76.486,type:"university"},
+  {name:"University of Arizona",city:"Tucson",state:"AZ",lat:32.2319,lng:-110.9501,type:"university"},
+  {name:"UC Berkeley",city:"Berkeley",state:"CA",lat:37.8724,lng:-122.2595,type:"university"},
+  {name:"UC Davis",city:"Davis",state:"CA",lat:38.5382,lng:-121.7617,type:"university"},
+  {name:"UC Irvine",city:"Irvine",state:"CA",lat:33.6405,lng:-117.8443,type:"university"},
+  {name:"UCLA",city:"Los Angeles",state:"CA",lat:34.0689,lng:-118.4452,type:"university"},
+  {name:"UC Merced",city:"Merced",state:"CA",lat:37.3647,lng:-120.4257,type:"university"},
+  {name:"UC San Diego",city:"La Jolla",state:"CA",lat:32.8801,lng:-117.234,type:"university"},
+  {name:"UC Santa Barbara",city:"Santa Barbara",state:"CA",lat:34.414,lng:-119.8489,type:"university"},
+  {name:"UC Santa Cruz",city:"Santa Cruz",state:"CA",lat:36.9916,lng:-122.0583,type:"university"},
+  {name:"University of Central Florida",city:"Orlando",state:"FL",lat:28.6024,lng:-81.2001,type:"university"},
+  {name:"University of Chicago",city:"Chicago",state:"IL",lat:41.7886,lng:-87.5987,type:"university"},
+  {name:"University of Connecticut",city:"Storrs",state:"CT",lat:41.8082,lng:-72.2518,type:"university"},
+  {name:"University of Florida",city:"Gainesville",state:"FL",lat:29.6436,lng:-82.3549,type:"university"},
+  {name:"University of Georgia",city:"Athens",state:"GA",lat:33.948,lng:-83.3774,type:"university"},
+  {name:"University of Massachusetts Amherst",city:"Amherst",state:"MA",lat:42.3868,lng:-72.5301,type:"university"},
+  {name:"University of Miami",city:"Coral Gables",state:"FL",lat:25.7215,lng:-80.2784,type:"university"},
+  {name:"University of Michigan, Ann Arbor",city:"Ann Arbor",state:"MI",lat:42.278,lng:-83.7382,type:"university"},
+  {name:"University of Michigan, Dearborn",city:"Dearborn",state:"MI",lat:42.3214,lng:-83.2285,type:"university"},
+  {name:"University of New Hampshire",city:"Durham",state:"NH",lat:43.1357,lng:-70.9395,type:"university"},
+  {name:"UNC Chapel Hill",city:"Chapel Hill",state:"NC",lat:35.9049,lng:-79.0469,type:"university"},
+  {name:"University of Nevada Las Vegas",city:"Las Vegas",state:"NV",lat:36.1074,lng:-115.1365,type:"university"},
+  {name:"University of Notre Dame",city:"Notre Dame",state:"IN",lat:41.7052,lng:-86.2352,type:"university"},
+  {name:"University of Pennsylvania",city:"Philadelphia",state:"PA",lat:39.9522,lng:-75.1932,type:"university"},
+  {name:"University of Richmond",city:"Richmond",state:"VA",lat:37.576,lng:-77.5413,type:"university"},
+  {name:"University of Rochester",city:"Rochester",state:"NY",lat:43.1281,lng:-77.628,type:"university"},
+  {name:"University of San Francisco",city:"San Francisco",state:"CA",lat:37.7766,lng:-122.4509,type:"university"},
+  {name:"University of South Carolina",city:"Columbia",state:"SC",lat:33.996,lng:-81.0299,type:"university"},
+  {name:"University of South Florida",city:"Tampa",state:"FL",lat:28.0587,lng:-82.4139,type:"university"},
+  {name:"University of Southern California",city:"Los Angeles",state:"CA",lat:34.0224,lng:-118.2851,type:"university"},
+  {name:"University of Texas Austin",city:"Austin",state:"TX",lat:30.2849,lng:-97.7341,type:"university"},
+  {name:"University of Texas Arlington",city:"Arlington",state:"TX",lat:32.7299,lng:-97.1139,type:"university"},
+  {name:"University of Vermont",city:"Burlington",state:"VT",lat:44.478,lng:-73.1962,type:"university"},
+  {name:"University of Virginia",city:"Charlottesville",state:"VA",lat:38.0336,lng:-78.508,type:"university"},
+  {name:"University of Washington",city:"Seattle",state:"WA",lat:47.6553,lng:-122.3035,type:"university"},
+  {name:"University of Wisconsin–Madison",city:"Madison",state:"WI",lat:43.0766,lng:-89.4125,type:"university"},
+  {name:"Vanderbilt University",city:"Nashville",state:"TN",lat:36.1447,lng:-86.8027,type:"university"},
+  {name:"Villanova University",city:"Villanova",state:"PA",lat:40.0362,lng:-75.3411,type:"university"},
+  {name:"Washington University in St. Louis",city:"St. Louis",state:"MO",lat:38.6488,lng:-90.3108,type:"university"},
+  {name:"Wayne State University",city:"Detroit",state:"MI",lat:42.3574,lng:-83.0716,type:"university"},
+  {name:"Wellesley College",city:"Wellesley",state:"MA",lat:42.2948,lng:-71.3063,type:"liberal arts"},
+  {name:"Wesleyan University",city:"Middletown",state:"CT",lat:41.5563,lng:-72.6572,type:"liberal arts"},
+  {name:"Whitman College",city:"Walla Walla",state:"WA",lat:46.0699,lng:-118.3266,type:"liberal arts"},
+  {name:"Williams College",city:"Williamstown",state:"MA",lat:42.713,lng:-73.2026,type:"liberal arts"},
+  {name:"Yale University",city:"New Haven",state:"CT",lat:41.3163,lng:-72.9223,type:"university"},
+  // ── 14 newly added ──
+  {name:"University of Maryland",city:"College Park",state:"MD",lat:38.9869,lng:-76.9426,type:"university"},
+  {name:"CUNY Hunter College",city:"New York",state:"NY",lat:40.7685,lng:-73.9645,type:"university"},
+  {name:"Joffrey Ballet School",city:"New York",state:"NY",lat:40.7413,lng:-74.0003,type:"university"},
+  {name:"Case Western Reserve University",city:"Cleveland",state:"OH",lat:41.5043,lng:-81.6083,type:"university"},
+  {name:"Worcester Polytechnic Institute",city:"Worcester",state:"MA",lat:42.2746,lng:-71.8065,type:"university"},
+  {name:"College of William & Mary",city:"Williamsburg",state:"VA",lat:37.2707,lng:-76.7075,type:"university"},
+  {name:"CUNY School of Medicine",city:"New York",state:"NY",lat:40.8198,lng:-73.9497,type:"university"},
+  {name:"Virginia Commonwealth University",city:"Richmond",state:"VA",lat:37.5483,lng:-77.4533,type:"university"},
+  {name:"Washington and Lee University",city:"Lexington",state:"VA",lat:37.7912,lng:-79.4422,type:"liberal arts"},
+  {name:"Occidental College",city:"Los Angeles",state:"CA",lat:34.1186,lng:-118.2045,type:"liberal arts"},
+  {name:"University of Houston",city:"Houston",state:"TX",lat:29.7197,lng:-95.3416,type:"university"},
+  {name:"Penn State University",city:"University Park",state:"PA",lat:40.7982,lng:-77.8599,type:"university"},
+  {name:"University of Texas at Dallas",city:"Richardson",state:"TX",lat:32.9886,lng:-96.7479,type:"university"},
+  {name:"Virginia Wesleyan University",city:"Norfolk",state:"VA",lat:36.8862,lng:-76.0486,type:"liberal arts"},
+];
+
+const colors={university:"#1a5fa8","liberal arts":"#2d7a3a",community:"#b84c1a"};
+const badgeBg={university:"#e8f0fa","liberal arts":"#e4f3e6",community:"#faeae3"};
+const typeLabel={university:"University / College","liberal arts":"Liberal Arts College",community:"Community College"};
+
+document.getElementById("s-total").textContent=schools.length;
+document.getElementById("s-states").textContent=new Set(schools.map(s=>s.state)).size;
+document.getElementById("s-types").textContent="3 types";
+
+const svgEl=document.getElementById("map-svg");
+const svg=d3.select(svgEl);
+const g=d3.select("#map-g");
+const tooltip=document.getElementById("tooltip");
+const mapWrap=document.getElementById("map-wrap");
+const projection=d3.geoAlbersUsa().scale(1280).translate([480,300]);
+const path=d3.geoPath().projection(projection);
+
+const zoom=d3.zoom().scaleExtent([1,10])
+  .on("start",()=>svgEl.classList.add("grabbing"))
+  .on("zoom",(event)=>{
+    const{transform}=event;
+    g.attr("transform",transform);
+    g.selectAll(".school-dot").attr("r",6/transform.k).attr("stroke-width",1.5/transform.k);
+    g.selectAll(".state-path").attr("stroke-width",.5/transform.k);
+  })
+  .on("end",()=>svgEl.classList.remove("grabbing"));
+
+svg.call(zoom);
+document.getElementById("zoom-in").addEventListener("click",()=>svg.transition().duration(300).call(zoom.scaleBy,1.6));
+document.getElementById("zoom-out").addEventListener("click",()=>svg.transition().duration(300).call(zoom.scaleBy,.625));
+document.getElementById("reset-btn").addEventListener("click",()=>svg.transition().duration(400).call(zoom.transform,d3.zoomIdentity));
+
+fetch("https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json")
+  .then(r=>r.json())
+  .then(us=>{
+    document.getElementById("loading").style.display="none";
+    g.append("g").selectAll("path")
+      .data(topojson.feature(us,us.objects.states).features)
+      .join("path").attr("class","state-path").attr("d",path);
+    g.append("path")
+      .datum(topojson.mesh(us,us.objects.states,(a,b)=>a!==b))
+      .attr("fill","none").attr("stroke","#ccc").attr("stroke-width",0.8).attr("d",path);
+    g.selectAll("circle").data(schools).join("circle")
+      .attr("class","school-dot")
+      .attr("cx",d=>{const p=projection([d.lng,d.lat]);return p?p[0]:-99;})
+      .attr("cy",d=>{const p=projection([d.lng,d.lat]);return p?p[1]:-99;})
+      .attr("r",6).attr("fill",d=>colors[d.type])
+      .attr("fill-opacity",.88).attr("stroke","#fff").attr("stroke-width",1.5)
+      .on("mousemove",function(event,d){
+        const rect=mapWrap.getBoundingClientRect();
+        tooltip.style.display="block";
+        tooltip.style.left=(event.clientX-rect.left+14)+"px";
+        tooltip.style.top=(event.clientY-rect.top-10)+"px";
+        tooltip.innerHTML=`<div class="t-name">${d.name}</div><div class="t-loc">${d.city}, ${d.state}</div><span class="t-badge" style="background:${badgeBg[d.type]};color:${colors[d.type]}">${typeLabel[d.type]}</span>`;
+        d3.select(this).attr("stroke-width",2.5).attr("r",8);
+      })
+      .on("mouseleave",function(){
+        tooltip.style.display="none";
+        const k=d3.zoomTransform(svgEl).k;
+        d3.select(this).attr("stroke-width",1.5/k).attr("r",6/k);
+      });
+  })
+  .catch(()=>{document.getElementById("loading").textContent="Map failed to load.";});
+</script>
+</body>
+</html>

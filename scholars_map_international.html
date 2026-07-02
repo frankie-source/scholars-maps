@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Scholars International School Map</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Georgia', serif; background: #fafaf8; color: #1a1a1a; padding: 24px; }
+  h1 { font-size: 22px; font-weight: normal; letter-spacing: -0.3px; margin-bottom: 4px; }
+  .subtitle { font-size: 13px; color: #888; margin-bottom: 16px; }
+  #stats-bar { display: flex; gap: 10px; margin-bottom: 14px; }
+  .stat { background: #fff; border: 0.5px solid #e0e0e0; border-radius: 8px; padding: 10px 16px; flex: 1; }
+  .stat-label { font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+  .stat-num { font-size: 22px; font-weight: 500; color: #1a1a1a; }
+  #map-wrap { border-radius: 12px; overflow: hidden; border: 0.5px solid #e0e0e0; background: #d6e8f5; position: relative; }
+  svg { display: block; width: 100%; cursor: grab; }
+  svg.grabbing { cursor: grabbing; }
+  .country-path { fill: #f2f0eb; stroke: #ccc; stroke-width: 0.4; }
+  .graticule { fill: none; stroke: #bdd5e8; stroke-width: 0.3; }
+  .sphere { fill: #d6e8f5; }
+  .school-dot { cursor: pointer; }
+  #tooltip {
+    position: absolute; pointer-events: none; background: #fff;
+    border: 0.5px solid #ddd; border-radius: 10px;
+    padding: 10px 14px; font-size: 13px; display: none; z-index: 10; max-width: 220px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  }
+  .t-name { font-weight: 600; margin-bottom: 3px; color: #1a1a1a; font-size: 13px; }
+  .t-loc { font-size: 12px; color: #888; margin-bottom: 6px; }
+  .t-badge { font-size: 11px; font-weight: 500; padding: 2px 9px; border-radius: 20px; display: inline-block; }
+  #zoom-controls { position: absolute; top: 12px; right: 12px; z-index: 10; display: flex; flex-direction: column; gap: 4px; }
+  .zoom-btn { width: 32px; height: 32px; background: #fff; border: 0.5px solid #ddd; border-radius: 7px; font-size: 18px; color: #333; cursor: pointer; display: flex; align-items: center; justify-content: center; user-select: none; }
+  .zoom-btn:hover { background: #f5f5f5; }
+  #reset-btn { width: 32px; height: 32px; background: #fff; border: 0.5px solid #ddd; border-radius: 7px; font-size: 11px; font-weight: 500; color: #888; cursor: pointer; display: flex; align-items: center; justify-content: center; margin-top: 2px; user-select: none; }
+  #reset-btn:hover { background: #f5f5f5; }
+  #footer { display: flex; justify-content: space-between; align-items: flex-start; margin-top: 10px; flex-wrap: wrap; gap: 8px; }
+  #legend { display: flex; gap: 12px; flex-wrap: wrap; }
+  .leg-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #666; }
+  .leg-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  #hint { font-size: 11px; color: #aaa; }
+  #loading { text-align: center; padding: 80px 0; font-size: 14px; color: #999; }
+</style>
+</head>
+<body>
+<h1>Where Our Scholars Go — International</h1>
+<p class="subtitle">International colleges and universities attended by program scholars</p>
+
+<div id="stats-bar">
+  <div class="stat"><div class="stat-label">International Schools</div><div class="stat-num" id="s-total">—</div></div>
+  <div class="stat"><div class="stat-label">Countries</div><div class="stat-num" id="s-countries">—</div></div>
+  <div class="stat"><div class="stat-label">Regions</div><div class="stat-num" id="s-regions">—</div></div>
+</div>
+
+<div id="map-wrap">
+  <div id="loading">Loading map…</div>
+  <svg id="map-svg" viewBox="0 0 960 500"><g id="map-g"></g></svg>
+  <div id="zoom-controls">
+    <button class="zoom-btn" id="zoom-in">+</button>
+    <button class="zoom-btn" id="zoom-out">−</button>
+    <button id="reset-btn">fit</button>
+  </div>
+  <div id="tooltip"></div>
+</div>
+
+<div id="footer">
+  <div id="legend" id="legend"></div>
+  <div id="hint">scroll or pinch to zoom · drag to pan</div>
+</div>
+
+<script>
+const schools = [
+  {name:"Addis Ababa University",city:"Addis Ababa",country:"Ethiopia",lat:9.0451,lng:38.7636,region:"Africa"},
+  {name:"African Leadership Academy",city:"Johannesburg",country:"South Africa",lat:-26.1367,lng:28.0714,region:"Africa"},
+  {name:"Ashoka University",city:"Sonipat",country:"India",lat:28.9931,lng:77.0151,region:"Asia"},
+  {name:"City University Hong Kong",city:"Kowloon",country:"Hong Kong",lat:22.3359,lng:114.1773,region:"Asia"},
+  {name:"Duke Kunshan University",city:"Kunshan",country:"China",lat:31.367,lng:120.9638,region:"Asia"},
+  {name:"DY Patil University",city:"Navi Mumbai",country:"India",lat:19.076,lng:73.0297,region:"Asia"},
+  {name:"École Polytechnique de Paris",city:"Palaiseau",country:"France",lat:48.7145,lng:2.2128,region:"Europe"},
+  {name:"Hungarian University of Agriculture and Life Sciences",city:"Gödöllő",country:"Hungary",lat:47.5988,lng:19.3679,region:"Europe"},
+  {name:"Jacobs University Bremen",city:"Bremen",country:"Germany",lat:53.167,lng:8.6493,region:"Europe"},
+  {name:"Korea Advanced Institute of Science and Technology",city:"Daejeon",country:"South Korea",lat:36.3741,lng:127.36,region:"Asia"},
+  {name:"McGill University",city:"Montreal",country:"Canada",lat:45.5048,lng:-73.5772,region:"Canada"},
+  {name:"New Generation University College",city:"Addis Ababa",country:"Ethiopia",lat:9.03,lng:38.74,region:"Africa"},
+  {name:"Northwestern Qatar",city:"Doha",country:"Qatar",lat:25.3197,lng:51.5072,region:"Middle East"},
+  {name:"NYU Abu Dhabi",city:"Abu Dhabi",country:"UAE",lat:24.5247,lng:54.434,region:"Middle East"},
+  {name:"Schellhammer Business School",city:"Barcelona",country:"Spain",lat:41.3851,lng:2.1734,region:"Europe"},
+  {name:"State University of Piaui",city:"Teresina",country:"Brazil",lat:-5.0919,lng:-42.8034,region:"South America"},
+  {name:"State University of Piaui Law School",city:"Teresina",country:"Brazil",lat:-5.105,lng:-42.815,region:"South America"},
+  {name:"Sungkyunkwan University",city:"Seoul",country:"South Korea",lat:37.5869,lng:126.9935,region:"Asia"},
+  {name:"Thuongmai University",city:"Hanoi",country:"Vietnam",lat:21.0285,lng:105.8542,region:"Asia"},
+  {name:"University of British Columbia",city:"Vancouver",country:"Canada",lat:49.2606,lng:-123.246,region:"Canada"},
+  {name:"University of Toronto",city:"Toronto",country:"Canada",lat:43.6629,lng:-79.3957,region:"Canada"},
+  {name:"University of Zimbabwe",city:"Harare",country:"Zimbabwe",lat:-17.7837,lng:31.0534,region:"Africa"},
+];
+
+const regionColors = {
+  "Africa":       "#b84c1a",
+  "Asia":         "#1a7a8a",
+  "Europe":       "#5a3fa8",
+  "Middle East":  "#a87a1a",
+  "Canada":       "#1a5fa8",
+  "South America":"#2d7a3a",
+};
+const regionBg = {
+  "Africa":       "#faeae3",
+  "Asia":         "#e3f3f6",
+  "Europe":       "#eeebfa",
+  "Middle East":  "#faf3e3",
+  "Canada":       "#e8f0fa",
+  "South America":"#e4f3e6",
+};
+
+document.getElementById("s-total").textContent = schools.length;
+document.getElementById("s-countries").textContent = new Set(schools.map(s => s.country)).size;
+const regions = [...new Set(schools.map(s => s.region))];
+document.getElementById("s-regions").textContent = regions.length;
+
+// build legend
+const legend = document.getElementById("legend");
+regions.forEach(r => {
+  const item = document.createElement("div");
+  item.className = "leg-item";
+  item.innerHTML = `<div class="leg-dot" style="background:${regionColors[r]}"></div>${r}`;
+  legend.appendChild(item);
+});
+
+const svgEl = document.getElementById("map-svg");
+const svg = d3.select(svgEl);
+const g = d3.select("#map-g");
+const tooltip = document.getElementById("tooltip");
+const mapWrap = document.getElementById("map-wrap");
+
+const projection = d3.geoNaturalEarth1().scale(155).translate([480, 260]);
+const path = d3.geoPath().projection(projection);
+
+const zoom = d3.zoom().scaleExtent([1, 12])
+  .on("start", () => svgEl.classList.add("grabbing"))
+  .on("zoom", (event) => {
+    const { transform } = event;
+    g.attr("transform", transform);
+    g.selectAll(".school-dot").attr("r", 6 / transform.k).attr("stroke-width", 1.5 / transform.k);
+    g.selectAll(".country-path").attr("stroke-width", 0.4 / transform.k);
+    g.selectAll(".graticule").attr("stroke-width", 0.3 / transform.k);
+  })
+  .on("end", () => svgEl.classList.remove("grabbing"));
+
+svg.call(zoom);
+document.getElementById("zoom-in").addEventListener("click", () => svg.transition().duration(300).call(zoom.scaleBy, 1.6));
+document.getElementById("zoom-out").addEventListener("click", () => svg.transition().duration(300).call(zoom.scaleBy, 0.625));
+document.getElementById("reset-btn").addEventListener("click", () => svg.transition().duration(400).call(zoom.transform, d3.zoomIdentity));
+
+fetch("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json")
+  .then(r => r.json())
+  .then(world => {
+    document.getElementById("loading").style.display = "none";
+
+    g.append("path")
+      .datum({type:"Sphere"})
+      .attr("class","sphere")
+      .attr("d", path);
+
+    g.append("path")
+      .datum(d3.geoGraticule()())
+      .attr("class","graticule")
+      .attr("d", path);
+
+    g.append("g")
+      .selectAll("path")
+      .data(topojson.feature(world, world.objects.countries).features)
+      .join("path")
+      .attr("class","country-path")
+      .attr("d", path);
+
+    g.append("path")
+      .datum(topojson.mesh(world, world.objects.countries, (a, b) => a !== b))
+      .attr("fill","none").attr("stroke","#bbb").attr("stroke-width",0.4)
+      .attr("d", path);
+
+    g.selectAll("circle")
+      .data(schools)
+      .join("circle")
+      .attr("class","school-dot")
+      .attr("cx", d => { const p = projection([d.lng, d.lat]); return p ? p[0] : -99; })
+      .attr("cy", d => { const p = projection([d.lng, d.lat]); return p ? p[1] : -99; })
+      .attr("r", 6)
+      .attr("fill", d => regionColors[d.region])
+      .attr("fill-opacity", 0.9)
+      .attr("stroke","#fff")
+      .attr("stroke-width", 1.5)
+      .on("mousemove", function(event, d) {
+        const rect = mapWrap.getBoundingClientRect();
+        tooltip.style.display = "block";
+        tooltip.style.left = (event.clientX - rect.left + 14) + "px";
+        tooltip.style.top = (event.clientY - rect.top - 10) + "px";
+        tooltip.innerHTML = `
+          <div class="t-name">${d.name}</div>
+          <div class="t-loc">${d.city}, ${d.country}</div>
+          <span class="t-badge" style="background:${regionBg[d.region]};color:${regionColors[d.region]}">${d.region}</span>`;
+        d3.select(this).attr("stroke-width", 2.5).attr("r", 8);
+      })
+      .on("mouseleave", function() {
+        tooltip.style.display = "none";
+        const k = d3.zoomTransform(svgEl).k;
+        d3.select(this).attr("stroke-width", 1.5 / k).attr("r", 6 / k);
+      });
+  })
+  .catch(() => { document.getElementById("loading").textContent = "Map failed to load."; });
+</script>
+</body>
+</html>
